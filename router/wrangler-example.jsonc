@@ -1,15 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "worker",
+  "name": "router",
   "main": "src/index.ts",
   "compatibility_date": "2025-11-25",
   // "compatibility_flags": [
   //   "nodejs_compat"
   // ],
   "vars": {
-    "PROCESSING_DELAY_MS": 1000,
-    "MODE": "percentage_fail", // "All_Success", "All_fail", "percentage_fail"
-    "PERCENTAGE_FAIL": 5,
+    "KAFKA_URL": "example.com",
+    "POSTGRES_URL": "example.com",
+    "UPSTASH_REDIS_REST_URL": "example.com",
+    "UPSTASH_REDIS_REST_TOKEN": "abcdefghijklmnopqrstuvwxyz"
   },
   // "kv_namespaces": [
   //   {

@@ -8,8 +8,9 @@
   // ],
   "vars": {
     "PROCESSING_DELAY_MS": 1000,
-    "MODE": "percentage_fail", // "All_Success", "All_fail", "percentage_fail"
-    "PERCENTAGE_FAIL": 5,
+    "MODE": "All_Success", // "All_Success", "All_fail", "percentage_fail"
+    "PERCENTAGE_FAIL": 0,
+    "WRITE_URL": "example.com"
   },
   // "kv_namespaces": [
   //   {

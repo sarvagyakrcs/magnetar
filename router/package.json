@@ -1,0 +1,17 @@
+{
+  "name": "router",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy --minify",
+    "cf-typegen": "wrangler types --env-interface CloudflareBindings"
+  },
+  "dependencies": {
+    "@upstash/redis": "^1.35.6",
+    "hono": "^4.10.6"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.1",
+    "wrangler": "^4.4.0"
+  }
+}
