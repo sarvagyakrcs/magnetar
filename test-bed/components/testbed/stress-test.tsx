@@ -19,6 +19,7 @@ import type {
 } from "@/lib/types"
 import { Zap, Square, Loader2, TrendingUp, CheckCircle2, XCircle, Activity } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
+import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts"
 
 interface StressTestProps {
   onResults: (results: TestResult[]) => void
@@ -45,6 +46,8 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
       processingDelayMs: 0,
     })),
   )
+
+  const [successTimeline, setSuccessTimeline] = useState<{ elapsedSeconds: number; successRate: number }[]>([])
 
   useEffect(() => {
     if (useWorkerProfiles) {
@@ -111,6 +114,8 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
   }
 
   const handleStart = async () => {
+    setProgress(null)
+    setSuccessTimeline([])
     setIsRunning(true)
     abortRef.current = false
     startTimeRef.current = Date.now()
@@ -149,7 +154,12 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
             maxLatency = Math.max(maxLatency, r.latency)
           })
 
-          const elapsed = (Date.now() - startTimeRef.current) / 1000
+          const elapsedMilliseconds = Date.now() - startTimeRef.current
+          const elapsedSeconds = elapsedMilliseconds / 1000
+          const safeElapsed = elapsedSeconds > 0 ? elapsedSeconds : 0.001
+          const successRatePercent =
+            completed > 0 ? Math.round((successCount / completed) * 1000) / 10 : 0
+
           setProgress({
             completed,
             total: totalRequests,
@@ -158,7 +168,19 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
             avgLatency: Math.round(totalLatency / allResults.length),
             minLatency: minLatency === Number.POSITIVE_INFINITY ? 0 : minLatency,
             maxLatency,
-            requestsPerSecond: Math.round((completed / elapsed) * 10) / 10,
+            requestsPerSecond: Math.round((completed / safeElapsed) * 10) / 10,
+            elapsedSeconds,
+          })
+
+          setSuccessTimeline((prev) => {
+            const nextPoint = {
+              elapsedSeconds: Math.round(elapsedSeconds * 10) / 10,
+              successRate: successRatePercent,
+            }
+
+            const hasSameTimestamp = prev.length > 0 && prev[prev.length - 1].elapsedSeconds === nextPoint.elapsedSeconds
+            const nextTimeline = hasSameTimestamp ? [...prev.slice(0, -1), nextPoint] : [...prev, nextPoint]
+            return nextTimeline.length > 300 ? nextTimeline.slice(nextTimeline.length - 300) : nextTimeline
           })
         },
         {
@@ -452,6 +474,50 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
                   />
                 </div>
               </div>
+
+              {successTimeline.length > 1 && (
+                <div className="space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Success Rate Over Time</span>
+                    <span className="text-foreground font-mono">
+                      {successTimeline[successTimeline.length - 1]?.successRate.toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-40 rounded-lg border border-border/60 bg-secondary/40 p-3">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={successTimeline}>
+                        <CartesianGrid stroke="oklch(0.4 0 0 / 0.2)" strokeDasharray="3 3" />
+                        <XAxis
+                          dataKey="elapsedSeconds"
+                          stroke="oklch(0.4 0 0)"
+                          fontSize={12}
+                          tickFormatter={(value) => `${value}s`}
+                        />
+                        <YAxis
+                          domain={[0, 100]}
+                          stroke="oklch(0.4 0 0)"
+                          fontSize={12}
+                          tickFormatter={(value) => `${value}%`}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: "oklch(0.16 0.005 260)",
+                            border: "1px solid oklch(0.28 0.01 260)",
+                            borderRadius: "8px",
+                            color: "oklch(0.95 0 0)",
+                          }}
+                          formatter={(value: number | string) => {
+                            const numericValue = typeof value === "number" ? value : Number(value)
+                            return [`${numericValue.toFixed(1)}%`, "Success Rate"]
+                          }}
+                          labelFormatter={(value) => `${value}s elapsed`}
+                        />
+                        <Line type="monotone" dataKey="successRate" stroke="oklch(0.7 0.18 145)" strokeWidth={2} dot={false} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )}
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">

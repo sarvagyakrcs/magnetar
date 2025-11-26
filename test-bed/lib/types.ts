@@ -61,4 +61,5 @@ export interface StressTestProgress {
   minLatency: number
   maxLatency: number
   requestsPerSecond: number
+  elapsedSeconds: number
 }
