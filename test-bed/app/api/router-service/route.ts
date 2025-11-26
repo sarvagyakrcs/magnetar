@@ -1,25 +1,33 @@
 import { NextRequest, NextResponse } from "next/server"
+import { ROUTER_SERVICE_PATH, getRouterUrl } from "@/constants"
 
-const BASE_URL = process.env.MAGNETAR_ROUTER_URL ?? "https://magnetar-router.chiefsarvagya.workers.dev"
+const resolveBaseUrl = (override?: string) => {
+  const trimmed = override?.trim()
+  if (trimmed) {
+    return trimmed
+  }
+  return getRouterUrl()
+}
 
 type ProxyPayload = {
   path?: string
   method?: string
   headers?: Record<string, string | undefined>
   body?: unknown
+  routerUrl?: string
 }
 
-const buildTargetUrl = (path: string | undefined) => {
+const buildTargetUrl = (path: string | undefined, baseUrl: string) => {
   const trimmedPath = path?.trim()
   if (!trimmedPath) {
-    return `${BASE_URL}/service`
+    return `${baseUrl}${ROUTER_SERVICE_PATH}`
   }
 
   try {
-    const url = new URL(trimmedPath, BASE_URL)
+    const url = new URL(trimmedPath, baseUrl)
     return url.toString()
   } catch {
-    return `${BASE_URL}/service`
+    return `${baseUrl}${ROUTER_SERVICE_PATH}`
   }
 }
 
@@ -60,7 +68,8 @@ const serialiseBody = (body: ProxyPayload["body"]) => {
 export async function POST(req: NextRequest) {
   try {
     const payload = (await req.json()) as ProxyPayload
-    const targetUrl = buildTargetUrl(payload.path)
+    const baseUrl = resolveBaseUrl(payload.routerUrl)
+    const targetUrl = buildTargetUrl(payload.path, baseUrl)
     const body = serialiseBody(payload.body)
     const headers = createUpstreamHeaders(payload.headers, body !== undefined)
 

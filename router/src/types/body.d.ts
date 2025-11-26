@@ -1,12 +1,26 @@
 type Mode = "All_Success" | "All_fail" | "percentage_fail"
 
-type WorkerOverrides = {
+type WorkerOverrideFields = {
     PROCESSING_DELAY_MS?: number
     MODE?: Mode
     PERCENTAGE_FAIL?: number
+}
+
+type WorkerPayload = WorkerOverrideFields & {
     [key: string]: unknown
 }
 
-export type BodyType = WorkerOverrides & {
+type WorkerProfileOverride = {
+    workerUrl: string
+    overrides?: WorkerOverrideFields
+}
+
+type RouterConfig = {
+    defaultOverrides?: WorkerOverrideFields
+    workerProfiles?: WorkerProfileOverride[]
+}
+
+export type BodyType = WorkerPayload & {
     algo?: "roundRobin" | "random" | "proprietry"
+    routerConfig?: RouterConfig
 }

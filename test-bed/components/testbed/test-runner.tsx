@@ -10,6 +10,7 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
+import { ROUTER_SERVICE_PATH, getRouterUrl } from "@/constants"
 import { runTest, runBatchTest, ALGORITHMS, MODES } from "@/lib/magnetar-client"
 import type { TestConfig, TestResult, Algorithm, Mode } from "@/lib/types"
 import { Play, RotateCcw, Loader2, Clock, CheckCircle2, XCircle, Copy, ChevronDown, ChevronUp } from "lucide-react"
@@ -83,7 +84,8 @@ export function TestRunner({ onResult, isRunning, setIsRunning }: TestRunnerProp
   const copyAsCurl = () => {
     const config = buildConfig()
     const body = JSON.stringify(config.overrides, null, 2)
-    const curl = `curl -X POST https://magnetar-router.chiefsarvagya.workers.dev/service \\
+    const routerUrl = getRouterUrl({ preferLocalFallback: true })
+    const curl = `curl -X POST ${routerUrl}${ROUTER_SERVICE_PATH} \\
   -H 'Content-Type: application/json' \\
   -H 'x-magnetar-algo: ${config.algo}' \\
   -d '${body}'`

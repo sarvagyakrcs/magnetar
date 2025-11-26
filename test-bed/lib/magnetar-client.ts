@@ -1,4 +1,5 @@
 import type { TestConfig, TestResult, Algorithm, WorkerErrorProfile, Mode } from "./types"
+import { AVAILABLE_WORKERS, ROUTER_SERVICE_PATH } from "@/constants"
 
 const PROXY_ENDPOINT = "/api/router-service"
 
@@ -11,24 +12,29 @@ interface AppliedProfileOverrides {
 
 interface RunTestOptions {
   targetUrl?: string
+  routerUrlOverride?: string
   workerUrlOverride?: string | null
   algoLabelOverride?: string | null
   profileOverrides?: AppliedProfileOverrides
 }
 
 interface StressTestOptions {
-  workerProfiles?: WorkerErrorProfile[]
+  routerUrlOverride?: string
 }
 
 const ensureServicePath = (url: string) => {
-  if (!url) return "/service"
+  if (!url) return ROUTER_SERVICE_PATH
   try {
     const parsed = new URL(url)
-    parsed.pathname = parsed.pathname.endsWith("/service") ? parsed.pathname : `${parsed.pathname.replace(/\/$/, "")}/service`
+    if (!parsed.pathname.endsWith(ROUTER_SERVICE_PATH)) {
+      const normalizedPath = parsed.pathname.replace(/\/$/, "")
+      parsed.pathname = `${normalizedPath}${ROUTER_SERVICE_PATH}`
+    }
     return parsed.toString()
   } catch {
     const trimmed = url.endsWith("/") ? url.slice(0, -1) : url
-    return `${trimmed || "/service"}${trimmed.endsWith("/service") ? "" : "/service"}`
+    const base = trimmed || ROUTER_SERVICE_PATH
+    return base.endsWith(ROUTER_SERVICE_PATH) ? base : `${base}${ROUTER_SERVICE_PATH}`
   }
 }
 
@@ -38,7 +44,7 @@ export async function runTest(config: TestConfig, options?: RunTestOptions): Pro
 
   const body: Record<string, unknown> = { ...config.overrides }
 
-  const targetUrl = options?.targetUrl ? ensureServicePath(options.targetUrl) : "/service"
+  const targetUrl = options?.targetUrl ? ensureServicePath(options.targetUrl) : ROUTER_SERVICE_PATH
   const isDirectTarget = targetUrl.startsWith("http")
 
   const headers: Record<string, string> = {
@@ -63,6 +69,7 @@ export async function runTest(config: TestConfig, options?: RunTestOptions): Pro
         method: "POST",
         headers,
         body,
+        routerUrl: options?.routerUrlOverride,
       }),
     })
 
@@ -146,6 +153,11 @@ export async function runBatchTest(
   return results
 }
 
+const normalizeUrl = (url: string | null | undefined) => {
+  if (!url) return ""
+  return url.trim().replace(/\/+$/, "")
+}
+
 export async function runStressTest(
   config: TestConfig,
   totalRequests: number,
@@ -156,62 +168,50 @@ export async function runStressTest(
   const results: TestResult[] = []
   let completed = 0
 
-  const workerProfiles =
-    options?.workerProfiles?.filter((profile) => Boolean(profile.workerUrl)) ?? []
-  const hasWorkerProfiles = workerProfiles.length > 0
+  const routerProfileOverrides = Array.isArray(config.overrides.routerConfig?.workerProfiles)
+    ? config.overrides.routerConfig?.workerProfiles
+    : undefined
 
-  const profileEntries = hasWorkerProfiles
-    ? workerProfiles.map((profile) => {
-        const trimmedUrl = profile.workerUrl.endsWith("/")
-          ? profile.workerUrl.slice(0, -1)
-          : profile.workerUrl
-        const failureRate = Math.max(0, Math.min(100, Math.round(profile.failureRate ?? 0)))
-        const requestUrl = ensureServicePath(trimmedUrl)
-        return {
-          displayUrl: trimmedUrl,
-          requestUrl,
-          failureRate,
-          mode: profile.mode,
-          processingDelayMs: profile.processingDelayMs,
-        }
-      })
-    : []
-
-  let requestIndex = 0
+  const findProfileForWorker = (workerUrl: string | null | undefined) => {
+    if (!routerProfileOverrides?.length || !workerUrl) return undefined
+    const normalizedWorker = normalizeUrl(workerUrl)
+    return routerProfileOverrides.find(
+      (profile) => normalizeUrl(profile.workerUrl) === normalizedWorker,
+    )
+  }
 
   const runBatch = async () => {
     while (completed < totalRequests) {
       const batchSize = Math.min(concurrency, totalRequests - completed)
-      const promises = Array.from({ length: batchSize }, () => {
-        if (hasWorkerProfiles) {
-          const profile = profileEntries[requestIndex % profileEntries.length]
-          requestIndex += 1
-          const overrides = {
-            ...config.overrides,
-            MODE: profile.mode,
-            PROCESSING_DELAY_MS:
-              profile.processingDelayMs ?? config.overrides.PROCESSING_DELAY_MS,
-            PERCENTAGE_FAIL: profile.mode === "percentage_fail" ? profile.failureRate : undefined,
-          }
-          const profileConfig: TestConfig = {
-            ...config,
-            overrides,
-          }
-          return runTest(profileConfig, {
-            targetUrl: profile.requestUrl,
-            workerUrlOverride: profile.displayUrl,
-            algoLabelOverride: "worker-profile",
-            profileOverrides: {
-              workerUrl: profile.displayUrl,
-              mode: profile.mode,
-              failureRate: profile.mode === "percentage_fail" ? profile.failureRate : undefined,
-              processingDelayMs: profile.processingDelayMs,
-            },
-          })
-        }
-        return runTest(config)
-      })
+      const promises = Array.from({ length: batchSize }, () =>
+        runTest(config, {
+          routerUrlOverride: options?.routerUrlOverride,
+        }),
+      )
       const batchResults = await Promise.all(promises)
+
+      if (routerProfileOverrides?.length) {
+        batchResults.forEach((result) => {
+          const matchedProfile = findProfileForWorker(result.workerUrl)
+          if (!matchedProfile?.overrides) {
+            return
+          }
+          const overrides = matchedProfile.overrides
+          result.profileOverrides = {
+            workerUrl: matchedProfile.workerUrl,
+            mode: overrides.MODE as Mode | undefined,
+            failureRate:
+              typeof overrides.PERCENTAGE_FAIL === "number"
+                ? overrides.PERCENTAGE_FAIL
+                : undefined,
+            processingDelayMs:
+              typeof overrides.PROCESSING_DELAY_MS === "number"
+                ? overrides.PROCESSING_DELAY_MS
+                : undefined,
+          }
+        })
+      }
+
       results.push(...batchResults)
       completed += batchSize
       onProgress?.(completed, batchResults)
@@ -221,12 +221,6 @@ export async function runStressTest(
   await runBatch()
   return results
 }
-
-export const AVAILABLE_WORKERS = [
-  "https://worker.apshabd.workers.dev/",
-  "https://worker2.apshabd.workers.dev",
-  "https://worker3.apshabd.workers.dev",
-]
 
 export const ALGORITHMS: { value: Algorithm; label: string; description: string }[] = [
   { value: "roundRobin", label: "Round Robin", description: "Cycles through workers sequentially using Redis state" },

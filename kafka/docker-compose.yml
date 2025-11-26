@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  magnetar-kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    platform: linux/arm64
+    container_name: magnetar-kafka
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://magnetar-kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@magnetar-kafka:9093"
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - magnetar_kafka_data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+
+  magnetar-http-bridge:
+    image: confluentinc/cp-kafka-rest:7.6.1
+    platform: linux/arm64
+    container_name: magnetar-http-bridge
+    depends_on:
+      - magnetar-kafka
+    environment:
+      KAFKA_REST_LISTENERS: http://0.0.0.0:8082
+      KAFKA_REST_BOOTSTRAP_SERVERS: magnetar-kafka:9092
+      KAFKA_REST_HOST_NAME: magnetar-http-bridge
+    ports:
+      - "8082:8082"
+
+  magnetar-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    platform: linux/arm64
+    container_name: magnetar-ui
+    depends_on:
+      - magnetar-kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: magnetar
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: magnetar-kafka:9092
+      KAFKA_CLUSTERS_0_READONLY: "false"
+    ports:
+      - "8080:8080"
+
+volumes:
+  magnetar_kafka_data:

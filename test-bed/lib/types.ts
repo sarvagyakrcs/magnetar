@@ -2,10 +2,25 @@ export type Algorithm = "roundRobin" | "random" | "proprietry"
 
 export type Mode = "All_Success" | "All_fail" | "percentage_fail"
 
-export interface WorkerOverrides {
+export interface WorkerOverrideFields {
   PROCESSING_DELAY_MS?: number
   MODE?: Mode
   PERCENTAGE_FAIL?: number
+  [key: string]: unknown
+}
+
+export interface RouterWorkerProfileOverride {
+  workerUrl: string
+  overrides?: WorkerOverrideFields
+}
+
+export interface RouterConfig {
+  defaultOverrides?: WorkerOverrideFields
+  workerProfiles?: RouterWorkerProfileOverride[]
+}
+
+export interface WorkerOverrides extends WorkerOverrideFields {
+  routerConfig?: RouterConfig
 }
 
 export interface WorkerErrorProfile {

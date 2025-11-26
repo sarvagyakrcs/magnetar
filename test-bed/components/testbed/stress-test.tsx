@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { Progress } from "@/components/ui/progress"
-import { runStressTest, ALGORITHMS, MODES, AVAILABLE_WORKERS } from "@/lib/magnetar-client"
+import { ROUTER_TARGETS, AVAILABLE_WORKERS, type RouterTargetId } from "@/constants"
+import { runStressTest, ALGORITHMS, MODES } from "@/lib/magnetar-client"
 import type {
   TestConfig,
   TestResult,
@@ -34,6 +35,7 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
   const [percentageFail, setPercentageFail] = useState(20)
   const [totalRequests, setTotalRequests] = useState(100)
   const [concurrency, setConcurrency] = useState(10)
+  const [routerTargetId, setRouterTargetId] = useState<RouterTargetId>(ROUTER_TARGETS[0]?.id ?? "deployed")
   const [progress, setProgress] = useState<StressTestProgress | null>(null)
   const abortRef = useRef(false)
   const startTimeRef = useRef(0)
@@ -48,12 +50,6 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
   )
 
   const [successTimeline, setSuccessTimeline] = useState<{ elapsedSeconds: number; successRate: number }[]>([])
-
-  useEffect(() => {
-    if (useWorkerProfiles) {
-      setMode("percentage_fail")
-    }
-  }, [useWorkerProfiles])
 
   const updateWorkerProfileMode = (index: number, newMode: Mode) => {
     setWorkerProfiles((current) =>
@@ -98,9 +94,12 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
   const workerProfilePayload = useWorkerProfiles
     ? workerProfiles.map((profile) => ({
         workerUrl: profile.workerUrl,
-        mode: profile.mode,
-        failureRate: profile.failureRate,
-        processingDelayMs: profile.processingDelayMs,
+        overrides: {
+          MODE: profile.mode,
+          PROCESSING_DELAY_MS: profile.processingDelayMs ?? undefined,
+          PERCENTAGE_FAIL:
+            profile.mode === "percentage_fail" ? profile.failureRate ?? 0 : undefined,
+        },
       }))
     : undefined
 
@@ -120,13 +119,25 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
     abortRef.current = false
     startTimeRef.current = Date.now()
 
+    const selectedRouter = ROUTER_TARGETS.find((target) => target.id === routerTargetId) ?? ROUTER_TARGETS[0]
+    const defaultOverrideFields = {
+      MODE: mode,
+      PROCESSING_DELAY_MS: delayMs > 0 ? delayMs : undefined,
+      PERCENTAGE_FAIL: mode === "percentage_fail" ? percentageFail : undefined,
+    }
+
+    const overrides: TestConfig["overrides"] = useWorkerProfiles
+      ? {
+          routerConfig: {
+            defaultOverrides: defaultOverrideFields,
+            workerProfiles: workerProfilePayload,
+          },
+        }
+      : defaultOverrideFields
+
     const config: TestConfig = {
       algo,
-      overrides: {
-        MODE: useWorkerProfiles ? "percentage_fail" : mode,
-        PROCESSING_DELAY_MS: useWorkerProfiles ? undefined : delayMs > 0 ? delayMs : undefined,
-        PERCENTAGE_FAIL: useWorkerProfiles || mode !== "percentage_fail" ? undefined : percentageFail,
-      },
+      overrides,
     }
 
     const allResults: TestResult[] = []
@@ -184,7 +195,7 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
           })
         },
         {
-          workerProfiles: workerProfilePayload,
+          routerUrlOverride: selectedRouter?.url,
         },
       )
 
@@ -230,11 +241,31 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
             </Select>
           </div>
 
+          {/* Router Target */}
+          <div className="space-y-2">
+            <Label className="text-foreground">Router Target</Label>
+            <Select value={routerTargetId} onValueChange={(value) => setRouterTargetId(value as RouterTargetId)}>
+              <SelectTrigger className="bg-input border-border">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {ROUTER_TARGETS.map((target) => (
+                  <SelectItem key={target.id} value={target.id}>
+                    <div className="flex flex-col">
+                      <span>{target.label}</span>
+                      <span className="text-xs text-muted-foreground">{target.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* Mode */}
           <div className="space-y-2">
             <Label className="text-foreground">Worker Mode</Label>
-            <Select value={mode} onValueChange={(v) => setMode(v as Mode)} disabled={useWorkerProfiles}>
-              <SelectTrigger className="bg-input border-border disabled:opacity-60">
+            <Select value={mode} onValueChange={(v) => setMode(v as Mode)}>
+              <SelectTrigger className="bg-input border-border">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -247,7 +278,7 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
             </Select>
             {useWorkerProfiles && (
               <p className="text-xs text-muted-foreground">
-                Worker-specific profiles force percentage failure mode for each request.
+                Per-worker profiles override these global settings whenever the router picks that worker.
               </p>
             )}
           </div>
@@ -339,7 +370,7 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
                 </div>
               ))}
               <p className="text-xs text-muted-foreground">
-                Requests are proxied directly to each worker with the chosen mode, failure percentage, and processing delay.
+                Overrides are sent through the router—when it selects a worker, that worker receives the mode, failure percentage, and delay you configured here.
               </p>
             </div>
           )}
