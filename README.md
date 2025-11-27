@@ -2,7 +2,7 @@
 
 (not an acronym)
 
-This is SLaB(Smart Load Balancer) 2.0 and I am calling it Magnetar. SLaB 1.0 was very close to being a viable MVP but it couldn't. Now I am trying again with a refined architecture—hope it succeeds.
+This is SLaB(Smart Load Balancer) 2.0 and I am calling it Magnetar. SLaB 1.0 was very close to being a viable MVP but it couldn't. Now I am trying again with a refined architecture, hope it succeeds.
 
 ## Architecture Evolution
 
@@ -13,13 +13,11 @@ Current first draft vs. where we landed (old on the left, new on the right):
   <img src="./docs/images/final-setteled-arch.png" alt="final settled architecture" width="420" />
 </div>
 
-**TL;DR:** We started with a simple CF Worker router spraying requests + collecting 5xx via a "collector" worker and dumping into Postgres. The collector is just an abstraction—all workers directly publish telemetry to a telemetry topic in Kafka and communicate via kafka-http-bridge.
+**TL;DR:** We started with a simple CF Worker router spraying requests + collecting 5xx via a "collector" worker and dumping into Postgres. The collector is just an abstraction, all workers directly publish telemetry to a telemetry topic in Kafka and communicate via kafka http bridge.
 
-Now telemetry goes straight from the router → Kafka REST proxy → Go learner (Thompson Sampling) → router. Redis stays only for round-robin state, and learners consume Kafka instead of relying on a fragile Redis buffer.
+Now telemetry goes straight from the router → Kafka REST proxy → Go learner (Thompson Sampling) → router. Redis stays only for round robin state, and learners consume Kafka instead of relying on a fragile Redis buffer.
 
-**Note:** Ngrok works for exposing the router but it rate-limits at ~400 req/min, so I mostly run the router locally for stress tests. (Test-bed still has ngrok URLs baked in if you want to try it.)
-
----
+**Note:** Ngrok works for exposing the router but it rate limits at ~400 req/min, so I mostly run the router locally for stress tests. (Test bed still has ngrok URLs baked in if you want to try it.)
 
 ## How to Run
 
@@ -71,8 +69,6 @@ If learner is down, router falls back to round-robin/random so nothing explodes.
 3. Run `pnpm dev`
 
 This UI lets you set failure sliders per worker and run stress tests to compare algorithms (see screenshots in `docs/images`).
-
----
 
 ## Stress Test Results
 
