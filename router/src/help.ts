@@ -1,5 +1,7 @@
 import type { Redis } from "@upstash/redis"
 import { avalibleWorkers } from "./constants"
+import { requestLearnerRecommendation, type LearnerRequestContext } from "./lib/learner"
+import type { Bindings } from "./types/bindings"
 import { BodyType } from "./types/body"
 
 const ROUND_ROBIN_KEY = "roundRobin"
@@ -24,14 +26,29 @@ const getRandomWorker = () => {
     return avalibleWorkers[index]
 }
 
-export const getWorkerUrl = async (algo: BodyType["algo"], redis: Redis) : Promise<string> => {
+type WorkerSelectionOptions = {
+    env?: Bindings
+    learnerContext?: LearnerRequestContext
+}
+
+export const getWorkerUrl = async (
+    algo: BodyType["algo"],
+    redis: Redis,
+    options?: WorkerSelectionOptions
+) : Promise<string> => {
     switch (algo) {
         case "roundRobin":
             return getRoundRobinWorker(redis)
         case "random":
             return getRandomWorker()
         case "proprietry":
-            return avalibleWorkers[2]
+            if (options?.env && options?.learnerContext) {
+                const learnerWorker = await requestLearnerRecommendation(options.env, options.learnerContext)
+                if (learnerWorker && learnerWorker.trim() !== "") {
+                    return learnerWorker
+                }
+            }
+            return getRandomWorker()
     }
     return ""
 }

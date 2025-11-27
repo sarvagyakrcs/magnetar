@@ -79,6 +79,7 @@ app.all("*", async (c) => {
   const requestStart = Date.now()
   const requestId = crypto.randomUUID()
   const originalUrl = c.req.url
+  const incomingUrl = new URL(originalUrl)
   const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = c.env
   const redis = getRedisClient(UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
 
@@ -121,12 +122,19 @@ app.all("*", async (c) => {
   }
 
   const algo = bodyAlgo ?? getRequestedAlgo(c)
-  const workerUrl = await getWorkerUrl(algo, redis)
-  if (workerUrl === "") {
+
+  const workerUrl = await getWorkerUrl(algo, redis, {
+    env: c.env,
+    learnerContext: {
+      path: incomingUrl.pathname,
+      query: incomingUrl.search || undefined,
+      requestId,
+    },
+  })
+  if (!workerUrl || workerUrl === "") {
     return c.json({ error: "No worker url found" }, 500)
   }
 
-  const incomingUrl = new URL(originalUrl)
   const targetBase = workerUrl.replace(/\/$/, "")
   const targetUrl = `${targetBase}${incomingUrl.pathname}${incomingUrl.search}`
 
