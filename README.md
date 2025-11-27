@@ -2,7 +2,7 @@
 
 (not an acronym)
 
-This is SLaB 2.0 and I am calling it Magnetar. SLaB 1.0 was very close to being a viable MVP but it couldn't. Now I am trying again with a refined architecture—hope it succeeds.
+This is SLaB(Smart Load Balancer) 2.0 and I am calling it Magnetar. SLaB 1.0 was very close to being a viable MVP but it couldn't. Now I am trying again with a refined architecture—hope it succeeds.
 
 ## Architecture Evolution
 
