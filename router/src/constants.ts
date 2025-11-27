@@ -1,5 +1,5 @@
-export const avalibleWorkers = [
-    "https://worker.apshabd.workers.dev/",
-    "https://worker2.apshabd.workers.dev",
-    "https://worker3.apshabd.workers.dev"
-]
+import workerConfig from "../../config/workers.json"
+
+const { workerUrls } = workerConfig
+
+export const avalibleWorkers = Array.isArray(workerUrls) ? workerUrls : []

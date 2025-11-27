@@ -1,14 +1,16 @@
 import { Hono, type Context } from 'hono'
 import type { Bindings } from './types/bindings'
 import type { BodyType } from './types/body'
-import { getRedisClient } from './lib/upstash'
+import { avalibleWorkers } from './constants'
 import { getWorkerUrl } from './help'
+import { collectRoutingTelemetry, type RoutingTelemetryRecord } from './lb/telemetry'
 import { buildKafkaTopicUrl, produceKafkaJson } from './lib/kafka'
+import { getRedisClient } from './lib/upstash'
 
 type Algo = NonNullable<BodyType['algo']>
 
 const DEFAULT_ALGO: Algo = 'roundRobin'
-const FAILURES_TOPIC = 'failures'
+const TELEMETRY_TOPIC = 'telemetry'
 type WorkerProfiles = NonNullable<NonNullable<BodyType['routerConfig']>['workerProfiles']>
 const normalizeWorkerUrl = (url: string | undefined | null) => {
   if (!url) return ''
@@ -50,35 +52,21 @@ const getRequestedAlgo = (c: MagnetarContext) => {
   return DEFAULT_ALGO
 }
 
-type WorkerFailureRecord = {
-  failureId: string
-  timestamp: string
-  workerUrl: string
-  targetUrl: string
-  originalUrl: string
-  method: string
-  algo: Algo
-  responseStatus: number
-  responseStatusText: string
-  requestBody?: Record<string, unknown>
-  responseBodySnippet?: string
-}
-
-const publishWorkerFailure = async (
+const publishRoutingTelemetry = async (
   env: Bindings,
-  failure: WorkerFailureRecord
+  telemetry: RoutingTelemetryRecord
 ) => {
   const kafkaBaseUrl = env.KAFKA_URL
   if (!kafkaBaseUrl) {
-    console.warn('KAFKA_URL is not configured; skipping failure publish')
+    console.warn('KAFKA_URL is not configured; skipping telemetry publish')
     return
   }
-  const endpoint = buildKafkaTopicUrl(kafkaBaseUrl, FAILURES_TOPIC)
+  const endpoint = buildKafkaTopicUrl(kafkaBaseUrl, TELEMETRY_TOPIC)
   await produceKafkaJson(endpoint, {
     records: [
       {
-        key: failure.failureId,
-        value: failure,
+        key: telemetry.telemetryId,
+        value: telemetry,
       },
     ],
   })
@@ -88,6 +76,9 @@ const app = new Hono<{ Bindings: Bindings }>()
 
 
 app.all("*", async (c) => {
+  const requestStart = Date.now()
+  const requestId = crypto.randomUUID()
+  const originalUrl = c.req.url
   const { UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN } = c.env
   const redis = getRedisClient(UPSTASH_REDIS_REST_URL, UPSTASH_REDIS_REST_TOKEN)
 
@@ -95,13 +86,14 @@ app.all("*", async (c) => {
   forwardHeaders.delete("content-length")
   const method = c.req.method.toUpperCase()
   const hasRequestBody = method !== "GET" && method !== "HEAD"
+  const inboundContentLengthHeader = c.req.header("content-length")
 
   let bodyAlgo: Algo | undefined
   let forwardBody: string | ReadableStream | null | undefined
   let workerPayload: Record<string, unknown> | undefined
   let parsedJsonBody = false
   let baseWorkerPayload: Record<string, unknown> | undefined
-  let routerConfig: BodyType['routerConfig']
+  let routerConfig: BodyType["routerConfig"]
 
   if (hasRequestBody) {
     const contentType = c.req.header("content-type") ?? ""
@@ -134,7 +126,7 @@ app.all("*", async (c) => {
     return c.json({ error: "No worker url found" }, 500)
   }
 
-  const incomingUrl = new URL(c.req.url)
+  const incomingUrl = new URL(originalUrl)
   const targetBase = workerUrl.replace(/\/$/, "")
   const targetUrl = `${targetBase}${incomingUrl.pathname}${incomingUrl.search}`
 
@@ -181,54 +173,56 @@ app.all("*", async (c) => {
     )
   }
 
-  if (response.status >= 500 && response.status < 600) {
-    const clonedResponse = response.clone()
-    const failurePromise = (async () => {
-      const MAX_BODY_CHARS = 2048
-      let responseBodySnippet: string | undefined
-      try {
-        const responseBody = await clonedResponse.text()
-        if (responseBody) {
-          responseBodySnippet =
-            responseBody.length > MAX_BODY_CHARS
-              ? `${responseBody.slice(0, MAX_BODY_CHARS)}...`
-              : responseBody
-        }
-      } catch (error) {
-        console.warn('Unable to read failed worker response body', error)
-      }
-
-      const failureRecord: WorkerFailureRecord = {
-        failureId: crypto.randomUUID(),
-        timestamp: new Date().toISOString(),
-        workerUrl,
-        targetUrl,
-        originalUrl: c.req.url,
-        method,
-        algo,
-        responseStatus: response.status,
-        responseStatusText: response.statusText,
-        requestBody: workerPayload,
-        responseBodySnippet,
-      }
-
-      try {
-        await publishWorkerFailure(c.env, failureRecord)
-      } catch (error) {
-        console.error('Failed to publish worker failure to Kafka', error)
-      }
-    })()
-
-    if (c.executionCtx) {
-      c.executionCtx.waitUntil(failurePromise)
-    } else {
-      await failurePromise
-    }
-  }
-
   const responseHeaders = new Headers(response.headers)
   responseHeaders.set("x-magnetar-worker-url", workerUrl)
   responseHeaders.set("x-algo-used", algo)
+
+  const parseContentLength = (value?: string | null) => {
+    if (!value) {
+      return undefined
+    }
+    const parsed = Number.parseInt(value, 10)
+    return Number.isNaN(parsed) ? undefined : parsed
+  }
+
+  const telemetryRecord = collectRoutingTelemetry({
+    context: {
+      requestId,
+      method,
+      path: incomingUrl.pathname,
+      query: incomingUrl.search || undefined,
+      clientId: c.req.header("x-magnetar-client-id") ?? undefined,
+      hasRequestBody,
+      payloadBytes: parseContentLength(inboundContentLengthHeader),
+    },
+    decision: {
+      algo,
+      workerUrl,
+      targetUrl,
+      workerCount: avalibleWorkers.length,
+    },
+    outcome: {
+      statusCode: response.status,
+      latencyMs: Date.now() - requestStart,
+    },
+  })
+
+  console.log("routingTelemetry", telemetryRecord)
+
+  const telemetryPromise = (async () => {
+    try {
+      await publishRoutingTelemetry(c.env, telemetryRecord)
+    } catch (error) {
+      console.error("Failed to publish telemetry to Kafka", error)
+    }
+  })()
+
+  if (c.executionCtx) {
+    c.executionCtx.waitUntil(telemetryPromise)
+  } else {
+    await telemetryPromise
+  }
+
   return new Response(response.body, {
     status: response.status,
     headers: responseHeaders,

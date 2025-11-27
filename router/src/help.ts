@@ -10,15 +10,9 @@ const getRoundRobinWorker = async (redis: Redis) => {
         return ""
     }
 
-    const storedIndex = await redis.get<number>(ROUND_ROBIN_KEY)
-    if (typeof storedIndex !== "number" || storedIndex < 0 || storedIndex >= totalWorkers) {
-        await redis.set(ROUND_ROBIN_KEY, 0)
-        return avalibleWorkers[0]
-    }
-
-    const nextIndex = (storedIndex + 1) % totalWorkers
-    await redis.set(ROUND_ROBIN_KEY, nextIndex)
-    return avalibleWorkers[storedIndex]
+    const counter = await redis.incr(ROUND_ROBIN_KEY)
+    const index = ((counter - 1) % totalWorkers + totalWorkers) % totalWorkers
+    return avalibleWorkers[index]
 }
 
 const getRandomWorker = () => {
