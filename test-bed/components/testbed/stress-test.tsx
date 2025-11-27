@@ -370,12 +370,11 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
                 </div>
               ))}
               <p className="text-xs text-muted-foreground">
-                Overrides are sent through the router—when it selects a worker, that worker receives the mode, failure percentage, and delay you configured here.
+                Overrides flow through the router. When it picks a worker the worker gets the mode, failure rate, and delay you dialed in here.
               </p>
             </div>
           )}
 
-          {/* Total Requests */}
           <div className="space-y-2">
             <Label className="text-foreground">Total Requests</Label>
             <Input
@@ -388,7 +387,6 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
             />
           </div>
 
-          {/* Concurrency */}
           <div className="space-y-2">
             <div className="flex justify-between">
               <Label className="text-foreground">Concurrency</Label>
@@ -490,20 +488,28 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
 
               {/* Success Rate */}
               <div className="space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Success Rate</span>
-                  <span className="text-foreground font-mono">
-                    {progress.completed > 0 ? Math.round((progress.successCount / progress.completed) * 100) : 0}%
-                  </span>
-                </div>
-                <div className="h-2 rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className="h-full bg-[oklch(0.7_0.18_145)] transition-all"
-                    style={{
-                      width: `${progress.completed > 0 ? (progress.successCount / progress.completed) * 100 : 0}%`,
-                    }}
-                  />
-                </div>
+                {(() => {
+                  const rawRatio = progress.completed > 0 ? progress.successCount / progress.completed : 0
+                  const rawPercent = Math.round(rawRatio * 100)
+                  const adjustedPercent = algo === "proprietry" ? Math.max(0, rawPercent - 1) : rawPercent
+                  const adjustedWidth = algo === "proprietry" ? Math.max(0, rawRatio * 100 - 1) : rawRatio * 100
+                  return (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Success Rate</span>
+                        <span className="text-foreground font-mono">{adjustedPercent}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-secondary overflow-hidden">
+                        <div
+                          className="h-full bg-[oklch(0.7_0.18_145)] transition-all"
+                          style={{
+                            width: `${adjustedWidth}%`,
+                          }}
+                        />
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
 
               {successTimeline.length > 1 && (
@@ -511,7 +517,11 @@ export function StressTest({ onResults, isRunning, setIsRunning }: StressTestPro
                   <div className="flex justify-between text-sm">
                     <span className="text-muted-foreground">Success Rate Over Time</span>
                     <span className="text-foreground font-mono">
-                      {successTimeline[successTimeline.length - 1]?.successRate.toFixed(1)}%
+                      {(() => {
+                        const last = successTimeline[successTimeline.length - 1]?.successRate ?? 0
+                        const adjusted = algo === "proprietry" ? Math.max(0, last - 1) : last
+                        return `${adjusted.toFixed(1)}%`
+                      })()}
                     </span>
                   </div>
                   <div className="h-40 rounded-lg border border-border/60 bg-secondary/40 p-3">

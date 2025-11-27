@@ -11,6 +11,7 @@
 - tl;dr: we started with a simple CF Worker router spraying requests + collecting 5xx via a “collector” worker and dumping into Postgres
 - collector is just an abstraction, all workers directly publish telemetry to `telemetry topic in kafka and communicate via kafka-http-bridge`
 - now telemetry goes straight from the router → Kafka REST proxy → Go learner (Thompson Sampling) → router, Redis stays only for round-robin state, and learners consume Kafka instead of relying on a fragile Redis buffer
+- yup ngrok works for exposing the router but it rate-limits at ~400 req/min so I mostly run the router locally for stress tests (test-bed still has ngrok URLs baked in if you want to try it)
 
 ## How to run
 ### Step - 1
@@ -30,10 +31,12 @@
 
 ### Step - 3 (Kafka stack)
 - `cd kafka && docker compose up -d`
+- please actually run that compose file, everything assumes those containers are up
 - this spins up:
   - kafka broker (exposes `localhost:29092` for host clients, `magnetar-kafka:9092` for containers)
   - kafka-rest on `http://localhost:8082`
   - kafka-ui on `http://localhost:8080`
+- open Kafka UI (8080) and create the `telemetry` topic manually (router publishes there, learner consumes it)
 
 ### Step - 4 (learner aka Thompson Sampling brain)
 - `cd learner`
@@ -47,3 +50,10 @@
 - `pnpm i`
 - `pnpm dev`
 - this UI lets you set failure sliders per worker and run stress tests to compare algos (see screenshots in docs/images)
+
+## Stress test receipts
+- round robin with two workers at 100% fail + one at 90% fail lands around 3% success
+  <img src="./docs/findings/Thomson-Sampling/rr.png" alt="round robin chart" width="520" />
+- thompson sampling shifts traffic toward the least-bad worker and sits closer to 10% success under the same setup
+  <img src="./docs/findings/Thomson-Sampling/thomson.png" alt="thomson sampling chart" width="520" />
+- randomness PSA: workers in `percentage_fail` mode literally flip a coin per request (`Math.random() * 100 < PERCENTAGE_FAIL`), so the proprietary line wiggles a few points because it keeps hammering the same “least awful” worker; round robin stays glued to its theoretical limit because it splits traffic evenly (two workers contribute 0%, the third contributes whatever its slider says)
